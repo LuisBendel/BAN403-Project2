@@ -210,3 +210,7 @@ resident_cases %>%
   summarise(probability = n()/n_sim) %>% 
   pull(probability) %>% 
   paste(., collapse = " ")
+
+
+
+
