@@ -1,0 +1,38 @@
+[VitalsQ1].QueueLength
++ [Vitals1].Working
++ [ResidentQ1].QueueLength
++ [ResidentReview1].Working
++ [RPQ1].QueueLength
++ [ResidentPatient1].Working
++ [WaitDoc1].QueueLength
++ [TeachQ1].QueueLength
++ [Teach1].Working
++ [AttendingQ1].QueueLength
++ [Attending1].Working > 1
+
+
+
+[VitalsQ2].QueueLength
++ [Vitals2].Working
++ [ResidentQ2].QueueLength
++ [ResidentReview2].Working
++ [RPQ2].QueueLength
++ [ResidentPatient2].Working
++ [WaitDoc2].QueueLength
++ [TeachQ2].QueueLength
++ [Teach2].Working
++ [AttendingQ2].QueueLength
++ [Attending2].Working > 1
+
+
+[VitalsQ3].QueueLength
++ [Vitals3].Working
++ [ResidentQ3].QueueLength
++ [ResidentReview3].Working
++ [RPQ3].QueueLength
++ [ResidentPatient3].Working
++ [WaitDoc3].QueueLength
++ [TeachQ3].QueueLength
++ [Teach3].Working
++ [AttendingQ3].QueueLength
++ [Attending3].Working > 1
