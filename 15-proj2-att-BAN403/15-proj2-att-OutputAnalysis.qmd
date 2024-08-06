@@ -1,0 +1,237 @@
+---
+title: "Output Analysis: Project 2"
+format: html
+editor: visual
+---
+
+# Loading required packages
+
+```{r}
+#| echo: true
+#| output: false
+#| error: false
+#| warning: false
+
+# loading packages
+library(tidyverse)
+library(vctrs)
+```
+
+# Loading and transforming data
+
+```{r}
+#| echo: true
+#| output: false
+#| error: false
+#| warning: false
+
+# function getting simulation data (not ScheduleOptimization)
+get_data <- function(path){
+  data <- read.delim(path)
+  data <- data %>% select(-c(Scenario,Replication,X,X.1,X.3,X.5,X.7,X.9,X.11,X.13))
+  columns <- c("NumberProcessedWaitingTime", "NumberProcessedCycleTime", 
+               "AverageCycleTimeAll", "UncertaintyAverageCycleTimeAll", "SDAverageCycleTimeAll",
+               "AverageCycleTimeNew", "UncertaintyAverageCycleTimeNew", "SDAverageCycleTimeNew",
+               "AverageCycleTimeReturn", "UncertaintyAverageCycleTimeReturn", "SDAverageCycleTimeReturn",
+               "AverageCycleTimeFU", "UncertaintyAverageCycleTimeFU", "SDAverageCycleTimeFU",
+               "AverageWaitingTimeAll", "UncertaintyWaitingTimeAll", "SDWaitingTimeAll",
+               "AverageRejected", "UncertaintyAverageRejected", "SDAverageRejected")
+  colnames(data) <- columns
+  data <- data %>% drop_na() %>% t()
+  return(as.data.frame(data))
+}
+
+# function merging simulation data (not ScheduleOptimization)
+merge_data <- function(list){
+  data <- list[[1]]
+  for (i in 1:(length(list)-1)) {
+    data <- data %>% 
+      add_column(list[[i+1]])
+  }
+  cols <- c("Benchmark", "LateArrivalPolicyChange", "EarlyOpening",
+                      "ResidentPreprocessing", "ResidentScheduling80", 
+                      "ResidentScheduling90", "ResidentScheduling100")
+  colnames(data) <- cols
+  return(data)
+}
+```
+
+```{r}
+#| echo: true
+#| output: false
+#| error: false
+#| warning: false
+
+# load test data (not ScheduleOptimization)
+test_data <- merge_data(list(
+  get_data("raw/15-proj2-att-Benchmark.dat"),
+  get_data("raw/15-proj2-att-LateArrivalPolicyChange.dat"),
+  get_data("raw/15-proj2-att-EarlyOpening.dat"),
+  get_data("raw/15-proj2-att-ResidentPreprocessing.dat"),
+  get_data("raw/15-proj2-att-ResidentScheduling.dat")
+))
+
+# loading data ScheduleOptimization
+ScheduleOptimization <- read.delim("raw/15-proj2-att-ScheduleOptimization.dat")[seq(11, 1650, by = 11),c(1,3, 5,7,9,11:13,15:17,19:21,23:25,27:29,31:33)]
+colnames(ScheduleOptimization) <- c("Scenario", "Util", "ID","NumberProcessedWaitingTime", "NumberProcessedCycleTime", 
+                                    "AverageCycleTimeAll", "UncertaintyAverageCycleTimeAll", "SDAverageCycleTimeAll",
+                                    "AverageCycleTimeNew", "UncertaintyAverageCycleTimeNew", "SDAverageCycleTimeNew",
+                                    "AverageCycleTimeReturn", "UncertaintyAverageCycleTimeReturn", "SDAverageCycleTimeReturn",
+                                    "AverageCycleTimeFU", "UncertaintyAverageCycleTimeFU", "SDAverageCycleTimeFU",
+                                    "AverageWaitingTimeAll", "UncertaintyWaitingTimeAll", "SDWaitingTimeAll",
+                                    "AverageRejected", "UncertaintyAverageRejected", "SDAverageRejected")
+
+
+# determine optimal schedule with utilization 26
+ScheduleOptimization %>% filter(Util == 26) %>% arrange(AverageCycleTimeAll) %>% head(1)
+
+# determine optimal schedule with utilization 27
+ScheduleOptimization %>% filter(Util == 27) %>% arrange(AverageCycleTimeAll) %>% head(1)
+
+# determine optimal schedule with utilization 28
+ScheduleOptimization %>% filter(Util == 28) %>% arrange(AverageCycleTimeAll) %>% head(1)
+
+# best schedule
+best <- ScheduleOptimization[117,] %>% 
+  select(-c(Scenario, Util, ID)) %>% t() %>% as.data.frame()
+colnames(best) <- "ScheduleOptimization"
+
+# extracting data for averages over all patients 
+data_ct_all <- test_data[2:5,]
+data_ct_all[,"ScheduleOptimization"] <- best[2:5,]
+data_wt_all <- test_data[c(1,15:17),]
+data_wt_all[,"ScheduleOptimization"] <- best[c(1,15:17),]
+
+# extracting data for rejected
+data_rjt <- test_data[c(1:2,18:20),]
+data_rjt[,"ScheduleOptimization"] <- best[c(1:2,18:20),]
+data_rjt <- data_rjt %>% 
+  t() %>% 
+  as.data.frame() %>%
+  mutate(NumberRejected = as.numeric(NumberProcessedWaitingTime) - (NumberProcessedCycleTime), .before = -1) %>% 
+  select(-c(NumberProcessedWaitingTime, NumberProcessedCycleTime)) %>%
+  t() %>% as.data.frame()
+
+# extracting data for new, return and follow-up patients
+data_ct_new <- test_data[c(2,6:8),]
+data_ct_new[,"ScheduleOptimization"] <- best[c(2,6:8),]
+data_ct_return <- test_data[c(2,9:11),]
+data_ct_return[,"ScheduleOptimization"] <- best[c(2,9:11),]
+data_ct_fu <- test_data[c(2,12:14),]
+data_ct_fu[,"ScheduleOptimization"] <- best[c(2,12:14),]
+```
+
+# Analysis
+
+The purpose of our simulation is to answer a set of key questions. All questions revolve around determining whether altering the process flow or policies in the center will decrease the average waiting times. To provide evidence of this, we will compare the average waiting times in the benchmark model (simulating current operations) and the average waiting times in the center with the proposed change. As only one proposed change is implemented at a time, we are able to conclude based on statistical tests if the change decreased the waiting times or not.
+
+To provide prof of differences in the waiting times, we will utilize formal statistical tests. \## Testing As we are mostly interested in whether implementing a change in the center reduce the average waiting times of patients, we will conduct so-called right-tailed t-tests. Before conducting the t-tests we have to test if the variance of the two estimates is approximately the same using a F-test. The outcome of this test will determine whether a Student's (assumes equal variance) or a Welch's t-test will be utilized. Regardless of which test we end up using, we will use a 5% significance - level. As a result, we can with 95% confidence reject or keep the null hypothesis of no difference in average waiting times between the current operations and with the proposed change.
+
+```{r}
+#| echo: true
+#| output: false
+#| error: false
+#| warning: false
+
+# function performing F-test 
+# h0: var1 = var2, h1: var1 ≠ var2
+f_test <- function(sd1, n1, sd2, n2){
+  max <- max(sd1, sd2)
+  min <- min(sd1, sd2)
+  f <- (max^2) / (min^2)
+  critical_value <- qf(p = .05, 
+                       df1 = (n1 - 1),
+                       df2 = (n2 - 1), 
+                       lower.tail = FALSE)
+  if(f < critical_value){
+    c <- "Keep h0 of var1 = var2"
+  } else {
+    c <- "Accept h1 of var1 ≠ var2"
+  }
+  result <- tibble(sd1 = sd1, sd2 = sd2, df1 = (n1 - 1), df2 = (n2 - 1), 
+                   `F-stat` = f, `Critical Value` = critical_value,
+                   Conclusion = c)
+  return(result)
+}
+
+# function performing right-tailed two-sample t-test (Student's t-test)
+# assumption: samples have approximately the same variance
+# h0: µ1 - µ2 ≤ 0, h1: µ1 - µ2 > 0
+s_t_test <- function(mean1, sd1, n1, mean2, sd2, n2){
+  s <- sqrt(((n1-1)*sd1^2 + (n2-1)*sd2^2) / (n1+n2-2))
+  t <- (mean1-mean2) / (s*sqrt((1/n1)+(1/n2)))
+  df <- n1 + n2 -2
+  critical_value <- qt(p = .05, df = df, lower.tail = FALSE)
+  if(t < critical_value){
+    c <- "Keep h0 of µ1 ≤ µ2"
+  } else{
+    c <- "Accept h1 of µ1 > µ2"
+  }
+  result <- tibble(mean1 = mean1, sd1 = sd1, mean2 =mean2, sd2 = sd2, df = df, 
+                   `t-stat` = t, `Critical Value` = critical_value,
+                   Conclusion = c)
+  return(result)
+}
+
+# function performing Welch's t-test
+# h0: µ1 - µ2 ≤ 0, h1: µ1 - µ2 > 0
+w_t_test <- function(mean1, sd1, n1, mean2, sd2, n2){
+  t <- (mean1-mean2) / (sqrt((sd1^2/n1)+(sd2^2/n2)))
+  df <- n1 + n2 -2
+  critical_value <- qt(p = .05, df = df, lower.tail = FALSE)
+  if(t < critical_value){
+    c <- "Keep h0 of µ1 ≤ µ2"
+  } else{
+    c <- "Accept h1 of µ1 > µ2"
+  }
+  result <- tibble(mean1 = mean1, sd1 = sd1, mean2 =mean2, sd2 = sd2, df = df, 
+                   `t-stat` = t, `Critical Value` = critical_value,
+                   Conclusion = c)
+  return(result)
+}
+
+auto_test <- function(data){
+ benchmark <- data[,1] %>% t() %>% as.numeric()
+ mu1 <- benchmark[2]
+ sd1 <- benchmark[4]
+ n1 <- benchmark[1]
+ test_ls <- list()
+ for (i in 1:(length(data)-1)) {
+   sample <- data[,(i+1)] %>% t() %>% as.numeric()
+   mu2 <- sample[2]
+   sd2 <- sample[4]
+   n2 <- sample[1]
+   f <- f_test(sd1,n1,sd2,n2)
+   if(f$Conclusion == "Keep h0 of var1 = var2"){
+     result <- s_t_test(mu1, sd1, n1, mu2, sd2, n2)
+     result <- result %>% mutate(`Test used` = "Student's t-test")
+   } else {
+     result <- w_t_test(mu1, sd1, n1, mu2, sd2, n2)
+     result <- result %>% mutate(`Test used` = "Welch's t-test")
+   }
+   test_ls[[i]] <- result
+ }
+ return(test_ls)
+}
+
+```
+
+\`\`\`{r} #\| echo: true #\| output: true #\| error: false #\| warning: false
+
+# hypothesis testing
+
+# function returning a list of test results
+
+test_results \<- function(list){ test_ls \<- list() for (i in seq_along(list)) { data \<- list\[\[i\]\] test \<- auto_test(data) %\>% bind_rows() %\>% as.data.frame() row.names(test) \<- names(data\[-1\]) test_ls\[\[i\]\] \<- test } return(test_ls) }
+
+# testing for cycle times
+
+tests_ct \<- list(data_ct_all, data_ct_new, data_ct_return, data_ct_fu) conducted_tests_ct \<- test_results(tests_ct) print(conducted_tests_ct)
+
+# testing for waiting times
+
+test_wt \<- list(data_wt_all) conducted_test_wt \<- test_results(test_wt) print(conducted_test_wt)
+
+# testing for rejected
+
+test_rjt \<- list(data_rjt) conducted_test_rjt \<- test_results(test_rjt) print(conducted_test_rjt) \`\`\`\`

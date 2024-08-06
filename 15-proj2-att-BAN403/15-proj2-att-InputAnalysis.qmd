@@ -1,0 +1,298 @@
+---
+title: "Distribution Fitting: Project 2"
+format: html
+editor: visual
+---
+
+# Loading Required packages
+```{r}
+#| echo: true
+#| output: false
+#| error: false
+#| warning: false
+
+# load packages
+library(tidyverse)
+library(readxl)
+library(fitdistrplus)
+library(actuar)
+library(EnvStats)
+library(Distributacalcul)
+library(patchwork)
+```
+
+# Loading data from Excel
+The data utilized for fitting all distributions is detailed in the case document provided. The accompanying Excel file contains data from Table 1 to Table 5. We imported the data into R using the 'readxl' package. However, upon loading, we observed a mismatch between the column names in Table 3 and those specified in the case description. Consequently, we updated the variable names to align with the case description for consistency. No further alterations were made to the data. 
+
+```{r}
+#| echo: true
+#| output: false
+#| error: false
+#| warning: false
+
+# determine excel file path
+file <- "raw/MillerPainTreatmentCenterData.xlsx"
+
+# determine names of sheets in excel file
+sheets <- excel_sheets(file)
+
+# replicate table names from case-paper
+table_names <- rep(paste0("Table", seq(1,5)))
+
+# load excel sheets to global environment
+map2(table_names, sheets, \(x, y) assign(x, read_excel(file, sheet = y), 
+                                         envir = .GlobalEnv))
+
+# update variable names of Table3
+colnames(Table3) <- c("Record", 
+                      "Arrival Time Minus Appointment Time Before Policy Change", 
+                      "Arrival Time Minus Appointment Time After Policy Change")
+```
+
+# Determining which distributions to fit
+Our distribution fitting and evaluation procedure of choice is the 'fitdistrplus' package in R. Jaamsim offers a set of both discrete and continues distributions for modelling. We decided to limit the selection of distributions to fit to the data to those availible in Jaamsim. All the variables we will fit distributions are are assumed continues, thus we will limit the selection of distribution candidates to continues distributions.
+
+The set of distributions available for fitting in the 'fitdistrplus' package is limited. However, in combination with the 'actuar', 'EnvStats', and 'Distributacalcul' packages, we are able to attempt fitting the following distributions to the data: Uniform, Triangular, Normal, Exponential, Erlang, Gamma, Beta, Weibull, Log-Normal, and Log-Logistic. Note that not all distributions are suitable for fitting to every variable. For instance, the Beta-distribution is only defined for values in [0,1]. Furthermore, only the Normal, Uniform and Triangular distributions support negative values.
+
+```{r}
+#| echo: true
+#| output: false
+#| error: false
+#| warning: false
+
+# define continues distributions to fit
+dist_candidates <- c("unif", "tri", "norm", "exp", "Erlang", "gamma", 
+                     "beta", "weibull", "lnorm", "llogis")
+```
+
+# Defining functions for fitting distributions to all tables
+We will utilize three functions within the 'fitdistrplus' package: 'fitdist', 'gofstat', and 'denscomp'. In addition we will create numerous functions. These functions are designed to create the desired outputs for the report, and to automate the process of distribution fitting. 
+
+The 'fitdist' function requires two arguments to run: a vector of data and the name of a distribution. Additional arguments can be specified, including the method used for fitting the distribution. By default, the Maximum Likelihood Estimation (MLE) method is employed, which determines parameters that best characterize an assumed distribution by maximizing a likelihood function. While MLE is commonly used due to its efficiency and consistency, it relies on assumptions such as data independence and identical distribution (iid), and violations of these assumptions may lead to biased estimates. Nonetheless, we opted for MLE due to its widespread use and the rule of thumb that a sample size greater than 30 observations is often considered sufficient for providing consistent estimates. 
+
+The 'gofstat' function computes goodness-of-fit statistics for fitted distributions. We decided to focus on the Kolmogorov-Smirnov statistic (ks) in selecting between distribution fits. The advantage of using this statistic is that it assumes no specific distribution, thus it should apply to all of the distributions we fitted. However, one limitation is that if the parameters of the fitted distribution are unknown and are estimated from the data, using these estimated parameters to compute the test statistic may (in theory) invalidate the model. 
+
+The 'denscomp' function plots a histogram of the empirical cumulative distribution against the density functions of the fitted distributions. The function is compatible with the 'ggplot2' package, making it easier to add elements to the plots. We decided to include the ks statistic and the fitted parameters in the legends. This decision enables both visual and statistical methods in determining the best fitting distribution. the distribution parameters in the plots are converted to align with the inputs needed for the specific distribution in Jaamsim.
+
+```{r}
+#| echo: true
+#| output: false
+#| error: false
+#| warning: false
+
+# function fitting distribution to variable
+fit_dist <- function(table, variable, dist){
+  f <- tryCatch({fitdist(as.numeric(na.omit(table[[variable]])), dist)},
+                error = function(e){
+                  print(paste("Unable to fit distribution:", dist))
+                  return(NA)})
+  if(any(!is.na(f))){return(f)}
+}
+
+# function returning a list of gof-stat for a list of fits
+gof <- function(fit_list){
+  as.list(gofstat(fit_list))
+}
+
+# function determining gof of a list of fits, and returning the ks min. fit
+best_fit <- function(fit_list){
+  fit_list[[as.numeric(which.min(gofstat(fit_list)$ks))]]
+}
+
+# function defining the legend label of a fit
+label <- function(fit){
+  dist_name <- fit$distname
+  if(dist_name == "lnorm"){
+    j <- params_lnorm_JaamSim(meanlog = fit$estimate[1], 
+                              sdlog = fit$estimate[2])
+    var1 <- paste(names(j)[1], "=", j[[1]])
+    var2 <- paste(names(j)[2], "=", j[[2]])
+  }
+  else if(dist_name == "gamma"){
+    j <- params_gamma_JaamSim(shape = fit$estimate[1], rate = fit$estimate[2])
+    var1 <- paste(names(j[1]), "=", j[[1]])
+    var2 <- paste(names(j[2]), "=", j[[2]])
+  }
+  else if(dist_name == "exp"){
+    j <- params_exp_JaamSim(rate = fit$estimate[1])
+    var1 <- paste(names(j[1]), "=", j[[1]])
+    var2 <- NA
+  }
+  else{
+    var1 <- paste(names(fit$estimate)[1], "=", round(fit$estimate[1], 2))
+    var2 <- tryCatch({names(fit$estimate)[2]}, error = function(e){
+      return(NA)
+    })
+    if(!is.na(var2)){var2 <- paste(names(fit$estimate)[2], "=", 
+                                   round(fit$estimate[2], 2))} 
+  }
+  ks <- round(as.numeric(gof(fit)[["ks"]]), 2)
+  lbl <- paste0(dist_name, ": ", var1, if(!is.na(var2)){paste(",", var2)},
+                ", ks = ", ks) 
+  return(lbl)
+}
+
+# function creating a list of legend labels
+label_list <- function(list_of_fits){
+  lbl_list <- list()
+  for (fit in seq_along(list_of_fits)) {
+    lbl <- label(list_of_fits[[fit]])
+    lbl_list[[fit]] <- lbl
+  }
+  return(lbl_list)
+}
+
+# function that plots histogram of data and fitted distributions to data
+plt_fits <- function(fit_list, variable){
+  denscomp(fit_list, 
+           plotstyle = "ggplot", 
+           legendtext = label_list(fit_list)) +
+    labs(title = paste(variable),
+         subtitle = paste("Min. ks statistic:", best_fit(fit_list)$distname),
+         x = "Values") +
+    theme_minimal() +
+    theme(legend.key.size = unit(.09, "cm"), 
+          legend.text = element_text(size = 7),
+          legend.position = c(.6, .8),
+          plot.title = element_text(size = 8),
+          plot.subtitle = element_text(size = 7),
+          axis.text = element_text(size = 7),
+          axis.title = element_text(size = 7))
+}
+
+# function creating distribution plots for all variables in a table
+plt_tbl <- function(fitted_table){
+  plt_ls <- list()
+  for (var in seq_along(fitted_table)) {
+    name <- names(fitted_table)[var]
+    p <- plt_fits(fit_list = fitted_table[[var]],
+                  variable = name)
+    plt_ls[[name]] <- p 
+  }
+  return(plt_ls)
+}
+
+# function looping over all variables in table and fit distribution candidates
+fit_table <- function(table, list_of_candidates){
+  tbl_fls <- list()
+  for (i in 1:(length(table) - 1)) {
+    var_fls <- list()
+    variables <- names(table)[-1]
+    for (j in seq_along(list_of_candidates)) {
+      f <- fit_dist(table = table, variable = variables[i], 
+                    dist = list_of_candidates[j])
+      var_fls[[list_of_candidates[j]]] <- f
+    }
+    tbl_fls[[variables[i]]] <- var_fls
+  }
+  return(tbl_fls)
+}
+
+# function creating distribution fits for all tables
+fit_dist_tables <- function(tables, candidates){
+  for (table_name in seq_along(tables)) {
+    table <- get(tables[table_name])
+    assigned_name <- paste0("tbl", table_name, "_fls")
+    assigned_value <- fit_table(table = table, 
+                                list_of_candidates = dist_candidates)
+    assign(assigned_name, assigned_value, envir = .GlobalEnv)
+  }
+}
+
+# function creating plots of fits for all tables
+plt_dist_tables <- function(tables){
+  for (table_name in seq_along(tables)) {
+    table <- get(paste0("tbl", table_name, "_fls"), envir = .GlobalEnv)
+    assigned_name <- paste0("plts_tbl", table_name)
+    assigned <- plt_tbl(table)
+    assign(assigned_name, assigned, envir = .GlobalEnv)
+  }
+}
+
+# function wrapping table plots, and printing all wrapped plot for all tables
+wrap_tbl_plots <- function(){
+  pl <- list()
+  for (i in 1:5) {
+    p <- get(paste0(paste0("plts_tbl", i)), envir = .GlobalEnv)
+    wp <- wrap_plots(p)
+    pl[[i]] <- wp
+  }
+  return(print(pl))
+}
+
+# function determining the input parameters for JaamSim of the log-norm dist
+params_lnorm_JaamSim <- function(meanlog, sdlog){
+  tibble(mean = round((exp(meanlog + ((sdlog)^2/2)))/60, digits = 2),
+         sd = round((sqrt(((exp(sdlog^2)-1)*(exp(2*meanlog + sdlog^2)))))/60, 
+                    digits = 2))
+}
+
+# function determining the input parameters for JaamSim of the gamma dist
+params_gamma_JaamSim <- function(shape, rate){
+  tibble(mean = round((shape/rate), digits = 2),
+         shape = round(shape, digits = 2))
+}
+
+# function determining the input parameters for JaamSim of the exp dist
+params_exp_JaamSim <- function(rate){
+  tibble(mean = round((1/rate), digits = 2))
+}
+```
+
+# Fitting distributions to the data
+This section uses all all the functions defined to automatically fit distributions to all the data provided. The output is loaded into the environment (see tbl(i)_fls for list of fits), where each table has a list, with subsequent folds for each variable in the table. Each variable then has a subsequent fold for each fitted distribution to that variable, containing the information that will be used in plotting the distributions and extracting the ks stat. 
+
+```{r}
+#| echo: true
+#| output: false
+#| error: false
+#| warning: false
+
+# fit distributions to all tables
+fit_dist_tables(tables = table_names, candidates = dist_candidates)
+```
+
+# Plotting the fits
+In this section, lists of plots (see plts_tbl(i) for lists of plots) of all the fits are created and loaded to environment. Each plot contains a title of which variable is being analyses, a subtitle containing the fitted distribution with the lowest ks statistic, a histogram of the variable and density functions of the fitted distributions, and a legend containing the parameters in a format so they can be directly plugged into Jaamsim and the ks statistic of that distribution. 
+
+```{r}
+#| echo: true
+#| output: false
+#| error: false
+#| warning: false
+
+# fit plots to all tables
+plt_dist_tables(tables = table_names)
+```
+
+We decided for the report, that it would be beneficial to plot all variable within each table together. Therefore, we extracted all plots from the plot list of each table, and wrapped them in appropriate grids. The output is then 5 plots corresponding to each table. 
+
+```{r plot_table}
+#| echo: false
+#| output: true
+#| error: false
+#| warning: false
+#| 
+
+# wrap plots from all tables
+wrap_tbl_plots()
+```
+
+```{r plot_variable}
+#| echo: false
+#| output: true
+#| error: false
+#| warning: false
+#| 
+
+# plot all variables for the appendix
+for(i in c(plts_tbl1, plts_tbl2, plts_tbl3, plts_tbl4, plts_tbl5)){
+  print(i)
+}
+```
+
+
+# Limitations
+Our analysis of the variable distributions has two limitations. The first one is that we are unsuccessful in fitting all the continues distributions available in Jaamsim to the sample data. For the Erlang distribution, this is likely unproblematic as the distribution is a generalisation of the Gamma distribution. If Gamma is assumed the correct distribution of the data, it might in fact have scale and shape parameters corresponding to an Erlang distribution. To fit the Beta distribution to the sample data, we first would have to scale the data to be in [0,1]. It is decided to not investigate this further, as we believe that the assumed distributions of the variables provide good fits. The issues with the Triangular distribution has already been presented, where fitting distributions to variables with negative values provided a narrow selection of distributions to consider. However, in the case of the variables in Table 3 , the Normal distribution is fitting the data well. 
+
+The second issue is the use of the ks statistic in concluding on distributions for the variables. As previously stated, there are issues with using this statistic, especially without considering other goodness-of-fit statistics or criterion. However, we believe that using the ks statistic in combination with visually inspecting the distribution provides enough evidence to assume which distribution the variable times follow. 

@@ -12,11 +12,6 @@ delay <- read_excel('MillerPainTreatmentCenterData.xlsx', sheet = 3) %>%
 
 
 
-
-
-
-
-
 # Define start and end times of shift
 start_time <- as.POSIXct("1970-01-01 08:00:00", format = "%Y-%m-%d %H:%M:%S")
 end_time <- as.POSIXct("1970-01-01 11:15:00", format = "%Y-%m-%d %H:%M:%S")
@@ -73,6 +68,16 @@ arrival_nr <- tibble(
   resident_case = NA
 )
 
+arrival_S <- tibble(
+  day = as.numeric(),
+  app_id = as.numeric(),
+  patient_type = as.character(),
+  app_time = as.POSIXct(character()),
+  delay = as.numeric(),
+  arr_time = as.POSIXct(character()),
+  resident_case = NA
+)
+
 # define number of schedule simulations
 n_sim <- 1000
 
@@ -105,6 +110,31 @@ for (d in c(1:n_sim)) {
   }
 }
 
+
+# define number of schedule simulations TEMPLATE
+n_sim <- 1000
+
+set.seed(123)
+for (d in c(1:n_sim)) {
+  for (i in c(1:nrow(df))) {
+    p = df$patient_type[i]
+    arr_minus_app <- rlogis(1, location = -22.58, scale = 12.63)
+    resident_case <- sample(resident_proportions, 1)
+    
+    arrival_S <- add_row(arrival_S,
+                          day = d,
+                          app_id = i,
+                          patient_type = p,
+                          app_time = app_times[i],
+                          delay = arr_minus_app,
+                          arr_time = NA,
+                          resident_case = resident_case)
+    
+  }
+}
+
+
+
 # combine follow-up with new and return
 arrivals <- bind_rows(arrival_nr, arrival_f)
 
@@ -121,6 +151,19 @@ arrivals <- arrivals %>%
          diff2 = as.numeric(difftime(arr_time, lag(arr_time), units = "mins"))) %>%
   ungroup() %>% 
   replace_na(list(diff = 0, diff2 = 0))
+
+
+arrival_S <- arrival_S %>% 
+  arrange(day, app_time) %>% 
+  mutate(is_followup = (patient_type == "FollowUp"),
+         arr_time = app_time + minutes(round(delay))) %>% 
+  group_by(day, is_followup) %>% 
+  mutate(diff = as.numeric(difftime(app_time, lag(app_time), units = "mins")),
+         diff2 = as.numeric(difftime(arr_time, lag(arr_time), units = "mins"))) %>%
+  ungroup() %>% 
+  replace_na(list(diff = 0, diff2 = 0))
+
+
 
 
 arrivals %>% 
